@@ -10,6 +10,10 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
+// mmap and munmap
+void   mmap*    (void *addr, size_t length, int prot, int flags, int fd, off_t offset);
+int    munmap*  (void *addr, size_t length);
+
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
