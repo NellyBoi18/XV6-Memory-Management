@@ -6,9 +6,91 @@
 #include "mmu.h"
 #include "proc.h"
 #include "elf.h"
+#include "mmap.h"
+
+#define T_PGFLT 14    // Page fault trap number
+#define PGSIZE 4096   // Page size
 
 extern char data[];  // defined by kernel.ld
 pde_t *kpgdir;  // for use in scheduler()
+
+int
+is_lazy_allocation(char *fault_addr, struct proc *current_process) {
+  struct mmap_region *region = current_process->mmap_regions;
+  while (region) {
+    if ((fault_addr >= region->start) && (fault_addr < region->start + region->length) && (region->is_allocated)) {
+      return 1; // True
+    }
+  }
+
+  return 0; // False
+}
+
+void
+handle_lazy_allocation(char *fault_addr, struct proc *current_process) {
+  struct mmap_region *region = current_process->mmap_regions;
+  while (region) {
+    if ((fault_addr >= region->start) && (fault_addr < region->start + region->length)) {
+      break;
+    }
+
+    region = region->next;
+  }
+
+  if (region == 0) {
+    panic("handle_lazy_allocation: no region found");
+  }
+
+  char *paddr = kalloc(); // Allocate physical page
+  if (paddr == 0) {
+    panic("handle_lazy_allocation: out of memory");
+  }
+
+  memset(paddr, 0, PGSIZE); // Zero out memory
+
+  mempages(current_process>pgdir, (void*)PGROUNDDOWN((uint)fault_addr), PGSIZE, V2P(paddr), PTE_W|PTE_U); // Map page
+  region->is_allocated = 1; // Mark region as allocated
+}
+
+int is_guard_page(char *fault_addr, struct proc *current_process) {
+  struct mmap_region *region = current_process->mmap_regions;
+  while (region) {
+    char *guard_page_addr = region->start + region->length;
+    if ((fault_addr >= guard_page_addr) &&
+        (fault_addr < guard_page_addr + PGSIZE) &&
+        (region->flags & MAP_GROWSUP)) {
+      return 1; // True
+    }
+    region = region->next;
+  }
+  return 0; // False
+}
+
+void handle_guard_page(char *fault_addr, struct proc *current_process) {
+  struct mmap_region *region = current_process->mmap_regions;
+  while (region) {
+    char *guard_page_addr = region->start + region->length;
+    if ((fault_addr >= guard_page_addr) &&
+        (fault_addr < guard_page_addr + PGSIZE)) {
+      break;
+    }
+    region = region->next;
+  }
+
+  if (region == 0 || !(region->flags & MAP_GROWSUP)) {
+    panic("handle_guard_page: no region found or not MAP_GROWSUP");
+  }
+
+  char *paddr = kalloc(); // Allocate a new physical page with kalloc()
+  if (paddr == 0) {
+    panic("handle_guard_page: out of memory");
+  }
+
+  memset(paddr, 0, PGSIZE); // Zero the memory
+
+  mappages(current_process->pgdir, (void*)guard_page_addr, PGSIZE, V2P(paddr), PTE_W|PTE_U);
+  region->length += PGSIZE; // Increase the length of the region by one page
+}
 
 // Set up CPU's kernel segment descriptors.
 // Run once on entry on each CPU.
