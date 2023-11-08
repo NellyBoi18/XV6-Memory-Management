@@ -32,6 +32,14 @@ struct context {
   uint eip;
 };
 
+struct mmap_region {
+  char *start;                // Start addr of mapping
+  size_t length;              // Length of mapping
+  int flags;                  // Flags (MAP_ANONYMOUS, MAP_GROWSUP, MAP_GROWSDOWN)
+  int is_allocated;           // If region is lazily allocated
+  struct mmap_region *next;   // Pointer to next region
+}
+
 enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 // Per-process state
@@ -49,6 +57,7 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  struct mmap_region *mmap_regions; // Head of list of memory mapping regions
 };
 
 // Process memory is laid out contiguously, low addresses first:
