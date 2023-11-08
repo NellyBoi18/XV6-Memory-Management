@@ -77,6 +77,31 @@ trap(struct trapframe *tf)
             cpuid(), tf->cs, tf->eip);
     lapiceoi();
     break;
+  case T_PGFLT: // Page Fault
+    void *fault_addr = (void *)rcr2(); // Get faulting address
+    struct proc *current_process = myproc();
+
+    // Case 1 - Lazy Allocation
+    if (is_lazy_allocation(fault_addr, current_process)) {
+      // Handle lazy allocation
+      handle_lazy_allocation(fault_addr, current_process);
+      break;
+    }
+
+    // Case 2 - MAP_GROWSUP
+    if (is_guard_page(fault_addr, current_process)) {
+      // Handle guard page
+      handle_guard_page(fault_addr, current_process);
+      break;
+    }
+
+    // Case 3 - None of the Above - Error
+    cprintf("Segmentation Fault\n");
+    current_process->killed = 1;
+    break;
+
+  if(myproc()->killed) // Kill process
+    exit();
 
   //PAGEBREAK: 13
   default:
