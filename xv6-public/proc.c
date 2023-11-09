@@ -6,6 +6,9 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+#include "mmap.h"
+
+extern pte_t* walkpgdir(pde_t *pgdir, const void *va, int alloc);
 
 struct {
   struct spinlock lock;
@@ -210,6 +213,30 @@ fork(void)
 
   safestrcpy(np->name, curproc->name, sizeof(curproc->name));
 
+  // Copy memory mapping regions
+  for (int i = 0; i < MAX_MMAPS; i++) {
+    np->mmaps[i] = curproc->mmaps[i]; // curproc = p
+    if (curproc->mmaps[i].is_used) {
+      if (curproc->mmaps[i].flags & MAP_PRIVATE) {
+        // Make the pages read-only for copy-on-write
+        // make_pages_read_only(p->mmaps[i].addr, p->mmaps[i].length);
+        void *addr = curproc->mmaps[i].addr;
+        int length = curproc->mmaps[i].length;
+        pde_t *pgdir = myproc()->pgdir;
+
+        for (void *a = addr; a < addr + length; a += PGSIZE) {
+          pte_t *pte = walkpgdir(pgdir, a, 0);
+          if (pte && (*pte & PTE_P)) {
+            *pte &= ~PTE_W; // Remove write permission
+          }
+        }
+
+        lcr3(V2P(pgdir)); // Refresh the TLB
+      }
+      // MAP_SHARED mappings are already correctly set up
+    }
+  }
+
   pid = np->pid;
 
   acquire(&ptable.lock);
@@ -220,6 +247,27 @@ fork(void)
 
   return pid;
 }
+
+/*
+// Helper function to traverse the page table for the given virtual address
+pte_t* walkpgdir(pde_t *pgdir, const void *va, int alloc) {
+  pde_t *pde = &pgdir[PDX(va)];
+  pte_t *pgtab;
+
+  if (*pde & PTE_P) {
+    // Page directory entry is present
+    pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
+  } else {
+    if (!alloc || (pgtab = (pte_t*)kalloc()) == 0) {
+      return 0; // Failed to allocate a page table
+    }
+    // Make the new page table
+    memset(pgtab, 0, PGSIZE);
+    *pde = V2P(pgtab) | PTE_P | PTE_W | PTE_U;
+  }
+  return &pgtab[PTX(va)];
+}
+*/
 
 // Exit the current process.  Does not return.
 // An exited process remains in the zombie state
