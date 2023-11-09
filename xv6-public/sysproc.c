@@ -8,60 +8,6 @@
 #include "proc.h"
 
 int
-sys_mmap(void)
-{
-  // mmap args
-  void *addr;
-  int length;
-  int prot;
-  int flags;
-  int fd;
-  int offset;
-
-  // Get mmap args from system call
-  if (argptr(0, (void*)&addr, sideof(void*)) < 0 || 
-    argint(1, &length) < 0 ||
-    argint(2, &prot) < 0 ||
-    argint(3, &flags) < 0 ||
-    argint(4, &fd) < 0 ||
-    argint(5, &offset) < 0)
-
-    return -1;
-
-  // Check if addr is page-aligned
-  if (((uint) addr % PGSIZE) != 0)
-    return -1;
-
-  // Implement mmap functionality
-
-
-  // return (int)mapped_addr;
-  return -1;
-}
-
-int
-sys_munmap(void)
-{
-  // munmap args
-  void *addr;
-  int length;
-
-  // Get munmap args from system call
-  if (argptr(0, (void*)&addr, sideof(void*)) < 0 || 
-    argint(1, &length) < 0)
-
-    return -1;
-
-  // Check if addr is page-aligned
-  if (((uint) addr % PGSIZE) != 0)
-    return -1;
-
-  // Implement munmap functionality
-
-  return 0; // 0 on success
-}
-
-int
 sys_fork(void)
 {
   return fork();

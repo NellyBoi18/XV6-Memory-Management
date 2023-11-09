@@ -10,10 +10,6 @@ struct sleeplock;
 struct stat;
 struct superblock;
 
-// mmap and munmap
-void   mmap*    (void *addr, size_t length, int prot, int flags, int fd, off_t offset);
-int    munmap*  (void *addr, size_t length);
-
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
@@ -189,6 +185,8 @@ void            switchuvm(struct proc*);
 void            switchkvm(void);
 int             copyout(pde_t*, uint, void*, uint);
 void            clearpteu(pde_t *pgdir, char *uva);
+int             mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm);
+pte_t*          walkpgdir(pde_t *pgdir, const void *va, int alloc);
 
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

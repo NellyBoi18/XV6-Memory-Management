@@ -8,88 +8,119 @@
 #include "elf.h"
 #include "mmap.h"
 
-#define T_PGFLT 14    // Page fault trap number
-#define PGSIZE 4096   // Page size
-
 extern char data[];  // defined by kernel.ld
 pde_t *kpgdir;  // for use in scheduler()
 
-int
-is_lazy_allocation(char *fault_addr, struct proc *current_process) {
-  struct mmap_region *region = current_process->mmap_regions;
-  while (region) {
-    if ((fault_addr >= region->start) && (fault_addr < region->start + region->length) && (region->is_allocated)) {
-      return 1; // True
+void *mmap(void *addr, int length, int prot, int flags, int fd, int offset) {
+  // Error Checking
+  if (length <= 0 || (prot & ~(PROT_READ | PROT_WRITE)) || ((flags & MAP_ANONYMOUS) && fd != -1)) {
+    return (void *) -1;
+  }
+
+  struct proc *curproc = myproc();
+  int aligned_length = ((length + PGSIZE - 1) / PGSIZE) * PGSIZE;
+  int found;
+  int i;
+  void *start_addr;
+
+  // Align addr to page boundary if MAP_FIXED is set
+  if ((flags & MAP_FIXED) && ((uint)addr % PGSIZE != 0)) {
+    return (void *) -1;
+  }
+
+  // Find an available memory range and mapping slot
+  for (i = 0; i < MAX_MMAPS; i++) {
+    if (curproc->mmaps[i].is_used == 0) {
+      found = 0;
+
+      // If MAP_FIXED is set, use the specified addr
+      if ((flags & MAP_FIXED) != 0) {
+        start_addr = addr;
+        void *new_end = start_addr + aligned_length;
+
+        // Check for overlap with existing mappings
+        int j;
+        for (j = 0; j < MAX_MMAPS; j++) {
+          if (curproc->mmaps[j].is_used) {
+            void *existing_start = curproc->mmaps[j].addr;
+            int existing_length = curproc->mmaps[j].length;
+            void *existing_end = existing_start + existing_length;
+
+            // Check for overlap
+            if ((start_addr >= existing_start && start_addr < existing_end) ||
+              (new_end > existing_start && new_end <= existing_end)) {
+              return (void *) -1; // Overlap detected, range not available
+            }
+          }
+        }
+        found = 1; // No overlap, range is available
+      } else {
+        // Check for overlapping with existing mappings
+        int j;
+        for (j = 0; j < MAX_MMAPS; j++) {
+          if (curproc->mmaps[j].is_used && j != i) {
+            void *existing_start = curproc->mmaps[j].addr;
+            int existing_length = curproc->mmaps[j].length;
+
+            // Calculate the end addresses
+            void *new_end = start_addr + aligned_length;
+            void *existing_end = existing_start + existing_length;
+
+            // Check for overlap
+            if ((start_addr >= existing_start && start_addr < existing_end) ||
+              (new_end > existing_start && new_end <= existing_end)) {
+              found = 0; // Overlap detected, this range is not suitable
+              break;
+            }
+          }
+        }
+      }
+
+      if (found) {
+        curproc->mmaps[i] = (struct mmap_region){start_addr, aligned_length, prot, flags, 1};
+        return start_addr;
+      }
     }
   }
 
-  return 0; // False
+  // Handle MAP_ANONYMOUS
+  if (flags & MAP_ANONYMOUS) {
+    // TODO: Allocate virtual memory (lazy allocation)
+    // Return the starting address of allocated memory
+  }
+
+  // Handle file-backed mapping
+  if (!(flags & MAP_ANONYMOUS)) {
+    // TODO: Map the file into memory
+    // This part is complex and requires file system modifications
+  }
+
+  // No available mapping slots
+  return (void *) -1;
 }
 
-void
-handle_lazy_allocation(char *fault_addr, struct proc *current_process) {
-  struct mmap_region *region = current_process->mmap_regions;
-  while (region) {
-    if ((fault_addr >= region->start) && (fault_addr < region->start + region->length)) {
-      break;
+int munmap(void *addr, int length) {
+  // Error Checking
+  if ((uint)addr % PGSIZE != 0 || length <= 0) {
+    return -1;
+  }
+
+  struct proc *curproc = myproc();
+  int i;
+
+  // Locate the memory region and release it
+  for (i = 0; i < MAX_MMAPS; i++) {
+    if (curproc->mmaps[i].is_used && curproc->mmaps[i].addr == addr) {
+      // TODO: Release the memory (remove mapping from address space)
+      curproc->mmaps[i].is_used = 0;
+      return 0;
     }
-
-    region = region->next;
   }
 
-  if (region == 0) {
-    panic("handle_lazy_allocation: no region found");
-  }
+  // TODO: Release the memory or update file-backed mapping
 
-  char *paddr = kalloc(); // Allocate physical page
-  if (paddr == 0) {
-    panic("handle_lazy_allocation: out of memory");
-  }
-
-  memset(paddr, 0, PGSIZE); // Zero out memory
-
-  mempages(current_process>pgdir, (void*)PGROUNDDOWN((uint)fault_addr), PGSIZE, V2P(paddr), PTE_W|PTE_U); // Map page
-  region->is_allocated = 1; // Mark region as allocated
-}
-
-int is_guard_page(char *fault_addr, struct proc *current_process) {
-  struct mmap_region *region = current_process->mmap_regions;
-  while (region) {
-    char *guard_page_addr = region->start + region->length;
-    if ((fault_addr >= guard_page_addr) &&
-        (fault_addr < guard_page_addr + PGSIZE) &&
-        (region->flags & MAP_GROWSUP)) {
-      return 1; // True
-    }
-    region = region->next;
-  }
-  return 0; // False
-}
-
-void handle_guard_page(char *fault_addr, struct proc *current_process) {
-  struct mmap_region *region = current_process->mmap_regions;
-  while (region) {
-    char *guard_page_addr = region->start + region->length;
-    if ((fault_addr >= guard_page_addr) &&
-        (fault_addr < guard_page_addr + PGSIZE)) {
-      break;
-    }
-    region = region->next;
-  }
-
-  if (region == 0 || !(region->flags & MAP_GROWSUP)) {
-    panic("handle_guard_page: no region found or not MAP_GROWSUP");
-  }
-
-  char *paddr = kalloc(); // Allocate a new physical page with kalloc()
-  if (paddr == 0) {
-    panic("handle_guard_page: out of memory");
-  }
-
-  memset(paddr, 0, PGSIZE); // Zero the memory
-
-  mappages(current_process->pgdir, (void*)guard_page_addr, PGSIZE, V2P(paddr), PTE_W|PTE_U);
-  region->length += PGSIZE; // Increase the length of the region by one page
+  // No matching mapping found
+  return -1;
 }
 
 // Set up CPU's kernel segment descriptors.

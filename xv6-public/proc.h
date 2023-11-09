@@ -13,6 +13,17 @@ struct cpu {
 extern struct cpu cpus[NCPU];
 extern int ncpu;
 
+// Memory Mapping
+#define MAX_MMAPS 32
+
+struct mmap_region {
+  void *addr;
+  int length;
+  int prot;
+  int flags;
+  int is_used;
+};
+
 //PAGEBREAK: 17
 // Saved registers for kernel context switches.
 // Don't need to save all the segment registers (%cs, etc),
@@ -32,14 +43,6 @@ struct context {
   uint eip;
 };
 
-struct mmap_region {
-  char *start;                // Start addr of mapping
-  size_t length;              // Length of mapping
-  int flags;                  // Flags (MAP_ANONYMOUS, MAP_GROWSUP, MAP_GROWSDOWN)
-  int is_allocated;           // If region is lazily allocated
-  struct mmap_region *next;   // Pointer to next region
-}
-
 enum procstate { UNUSED, EMBRYO, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 // Per-process state
@@ -57,7 +60,7 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
-  struct mmap_region *mmap_regions; // Head of list of memory mapping regions
+  struct mmap_region mmaps[MAX_MMAPS]; // Memory mapping regions
 };
 
 // Process memory is laid out contiguously, low addresses first:
