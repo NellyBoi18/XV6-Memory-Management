@@ -8,8 +8,6 @@
 #include "spinlock.h"
 #include "mmap.h"
 
-extern pte_t* walkpgdir(pde_t *pgdir, const void *va, int alloc);
-
 struct {
   struct spinlock lock;
   struct proc proc[NPROC];
@@ -247,27 +245,6 @@ fork(void)
 
   return pid;
 }
-
-/*
-// Helper function to traverse the page table for the given virtual address
-pte_t* walkpgdir(pde_t *pgdir, const void *va, int alloc) {
-  pde_t *pde = &pgdir[PDX(va)];
-  pte_t *pgtab;
-
-  if (*pde & PTE_P) {
-    // Page directory entry is present
-    pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
-  } else {
-    if (!alloc || (pgtab = (pte_t*)kalloc()) == 0) {
-      return 0; // Failed to allocate a page table
-    }
-    // Make the new page table
-    memset(pgtab, 0, PGSIZE);
-    *pde = V2P(pgtab) | PTE_P | PTE_W | PTE_U;
-  }
-  return &pgtab[PTX(va)];
-}
-*/
 
 // Exit the current process.  Does not return.
 // An exited process remains in the zombie state

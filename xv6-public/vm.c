@@ -11,6 +11,7 @@
 extern char data[];  // defined by kernel.ld
 pde_t *kpgdir;  // for use in scheduler()
 
+/*
 void *mmap(void *addr, int length, int prot, int flags, int fd, int offset) {
   // Error Checking
   if (length <= 0 || (prot & ~(PROT_READ | PROT_WRITE)) || ((flags & MAP_ANONYMOUS) && fd != -1)) {
@@ -106,22 +107,77 @@ int munmap(void *addr, int length) {
   }
 
   struct proc *curproc = myproc();
-  int i;
+  pte_t *pte;
+  uint pa, start, end;
 
-  // Locate the memory region and release it
-  for (i = 0; i < MAX_MMAPS; i++) {
-    if (curproc->mmaps[i].is_used && curproc->mmaps[i].addr == addr) {
-      // TODO: Release the memory (remove mapping from address space)
-      curproc->mmaps[i].is_used = 0;
-      return 0;
+  // Iterate over all memory mappings
+  for (int i = 0; i < MAX_MMAPS; i++) {
+    if (curproc->mmaps[i].is_used) {
+      start = (uint)curproc->mmaps[i].addr;
+      end = start + curproc->mmaps[i].length;
+
+      // Check if the unmapping request overlaps with this region
+      if ((uint)addr + length > start && (uint)addr < end) {
+        uint unmap_start = max(start, (uint)addr);
+        uint unmap_end = min(end, (uint)addr + length);
+
+        // Release the memory within the specified range
+        for (uint a = unmap_start; a < unmap_end; a += PGSIZE) {
+          pte = walkpgdir(curproc->pgdir, (void*)a, 0);
+          if (pte && (*pte & PTE_P)) {
+            pa = PTE_ADDR(*pte);
+            if (pa) {
+              kfree(P2V(pa));
+              *pte = 0;
+            }
+          }
+        }
+
+        // Adjust the existing mmap region or split it
+        if (unmap_start > start && unmap_end < end) {
+          // Unmapping from the middle: split the region
+          int new_index = -1;
+          // Find a free mmap slot for the new region
+          for (int j = 0; j < MAX_MMAPS; j++) {
+            if (!curproc->mmaps[j].is_used) {
+              new_index = j;
+              break;
+            }
+          }
+          if (new_index == -1) {
+            // No space for new mmap region
+            return -1;
+          }
+
+          // Create a new mmap region for the second part
+          curproc->mmaps[new_index].addr = (void*)unmap_end;
+          curproc->mmaps[new_index].length = end - unmap_end;
+          curproc->mmaps[new_index].is_used = 1;
+
+          // Adjust the length of the original region
+          curproc->mmaps[i].length = unmap_start - start;
+        } else if (unmap_start > start) {
+          // Shrink from the start
+          curproc->mmaps[i].length -= unmap_start - start;
+          curproc->mmaps[i].addr = (void*)unmap_start;
+        } else if (unmap_end < end) {
+          // Shrink from the end
+          curproc->mmaps[i].length -= end - unmap_end;
+        }
+
+        switchuvm(curproc); // Flush TLB
+        return 0;
+      }
     }
   }
-
-  // TODO: Release the memory or update file-backed mapping
 
   // No matching mapping found
   return -1;
 }
+
+*/
+
+// TODO: Release the memory or update file-backed mapping
 
 // Set up CPU's kernel segment descriptors.
 // Run once on entry on each CPU.
@@ -145,7 +201,7 @@ seginit(void)
 // Return the address of the PTE in page table pgdir
 // that corresponds to virtual address va.  If alloc!=0,
 // create any required page table pages.
-static pte_t *
+pte_t *
 walkpgdir(pde_t *pgdir, const void *va, int alloc)
 {
   pde_t *pde;
@@ -170,7 +226,7 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 // Create PTEs for virtual addresses starting at va that refer to
 // physical addresses starting at pa. va and size might not
 // be page-aligned.
-static int
+int
 mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 {
   char *a, *last;

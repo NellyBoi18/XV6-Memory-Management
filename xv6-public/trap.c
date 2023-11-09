@@ -13,8 +13,6 @@ struct gatedesc idt[256];
 extern uint vectors[];  // in vectors.S: array of 256 entry pointers
 struct spinlock tickslock;
 uint ticks;
-extern int mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm);
-extern pte_t* walkpgdir(pde_t *pgdir, const void *va, int alloc);
 
 /*
 int is_cow_fault(uint faulting_address) {
